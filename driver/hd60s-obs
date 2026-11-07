@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Run the HD60 S driver into a v4l2loopback camera + a PipeWire "HD60 S Audio" input.
+# Restarts the driver when the HDMI signal drops or the resolution changes.
+# Exits when the card is unplugged or on Ctrl+C / SIGTERM.
+#
+# Env: HD60S_VIDEO=/dev/videoN to force a loopback device. Otherwise uses the
+# loopback device labelled "HD60 S".
+set -u
+HERE="$(dirname "$(readlink -f "$0")")"
+DRIVER="$HERE/hd60s"
+
+VIDEO="${HD60S_VIDEO:-}"
+if [ -z "$VIDEO" ]; then
+    for d in /sys/class/video4linux/video*; do
+        if [ "$(cat "$d/name" 2>/dev/null)" = "HD60 S" ]; then
+            VIDEO="/dev/$(basename "$d")"
+            break
+        fi
+    done
+fi
+if [ -z "$VIDEO" ]; then
+    echo "hd60s-obs: no v4l2loopback device labelled \"HD60 S\" found." >&2
+    echo "  Add one (see README, 'v4l2loopback'), or set HD60S_VIDEO=/dev/videoN." >&2
+    exit 1
+fi
+
+RUN="${XDG_RUNTIME_DIR:-/tmp}/hd60s"
+mkdir -p "$RUN"
+FIFO="$RUN/audio.fifo"
+[ -p "$FIFO" ] || { rm -f "$FIFO"; mkfifo "$FIFO"; }
+
+unload_audio() {
+    for m in $(pactl list short modules 2>/dev/null | awk '/source_name=hd60s_audio/ {print $1}'); do
+        pactl unload-module "$m" 2>/dev/null
+    done
+}
+unload_audio
+pactl load-module module-pipe-source source_name=hd60s_audio file="$FIFO" \
+    format=s16le rate=48000 channels=2 \
+    'source_properties="device.description=\"HD60 S Audio\""' >/dev/null || {
+    echo "hd60s-obs: could not create the PipeWire audio source" >&2
+    exit 1
+}
+
+child=0
+stopping=0
+on_term() {
+    stopping=1
+    [ "$child" -gt 0 ] && kill -TERM "$child" 2>/dev/null
+}
+trap on_term INT TERM
+trap unload_audio EXIT
+
+echo "hd60s-obs: video -> $VIDEO, audio -> PipeWire source 'HD60 S Audio'" >&2
+while :; do
+    "$DRIVER" -q -v "$VIDEO" -a "$FIFO" &
+    child=$!
+    wait "$child"
+    rc=$?
+    # wait returns early when a trapped signal arrives; reap the child properly
+    while kill -0 "$child" 2>/dev/null; do wait "$child"; rc=$?; done
+    child=0
+    [ "$stopping" = 1 ] && exit 0
+    case $rc in
+        0) exit 0 ;;                                                          # normal stop
+        4) echo "hd60s-obs: card unplugged" >&2; exit 0 ;;
+        *) echo "hd60s-obs: driver exited ($rc), retrying in 3s" >&2; sleep 3 ;;
+    esac
+done

@@ -1,0 +1,12 @@
+[Unit]
+Description=Elgato HD60 S capture (v4l2loopback camera + "HD60 S Audio" input)
+After=pipewire-pulse.service
+Wants=pipewire-pulse.service
+
+[Service]
+ExecStart=@BINDIR@/hd60s-obs
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

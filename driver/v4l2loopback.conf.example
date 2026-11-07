@@ -1,0 +1,4 @@
+# Example /etc/modprobe.d/v4l2loopback.conf giving the HD60 S its own camera.
+# If you already have v4l2loopback options, merge instead: add 1 to devices=,
+# and append a video_nr, "HD60 S" to card_label, and 1 to exclusive_caps.
+options v4l2loopback devices=1 video_nr=12 card_label="HD60 S" exclusive_caps=1

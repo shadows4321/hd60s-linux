@@ -1,0 +1,16 @@
+# Raw USB captures and decoded output can contain screen content: never publish them
+captures/
+out/
+*.pcap
+*.pcapng
+*.bin
+*.yuv
+*.raw
+*.wav
+
+# Build output
+driver/hd60s
+driver/hd60s.service
+
+# Python
+__pycache__/
